@@ -1,0 +1,82 @@
+#iasva
+library(irlba)  
+library(iasva)
+library(sva)
+library(Rtsne)
+library(pheatmap)
+library(corrplot)
+library(DescTools)
+library(RColorBrewer)
+library(SummarizedExperiment)
+set.seed(100)
+color.vec <- brewer.pal(3, "Set1")
+
+setwd("../data0523/GSE92538")
+a<-load("data0618.RData")
+counts<-as.matrix(data7)
+anns<-sample4[,-2]
+#calculate library size 
+#看一个样本的基因表达量之和，在单细胞测序中可以找到基因表达较少的细胞
+#geo_lib_size <- colSums(log(counts + 1))
+geo_lib_size <- colSums(counts)
+barplot(geo_lib_size, xlab = "sample", ylab = "Geometric Lib Size", las = 2)
+
+#lcounts <- log(counts + 1)
+lcounts<-counts
+# PC1 and Geometric library size correlation
+pc1 <- irlba(lcounts - rowMeans(lcounts), 1)$v[, 1]
+cor(geo_lib_size, pc1)
+## [1] -0.5509078
+
+#RUN IA-SVA
+set.seed(100)
+patient_id<-anns$agonal.factor
+mod <- model.matrix(~patient_id + geo_lib_size) #这里构建和感兴趣的因素有关的
+summ_exp <- SummarizedExperiment(assays = counts)
+#怎么看num.sv?
+n.sv<-num.sv(counts,mod,method="leek")
+n.sv=14
+iasva.res<- iasva(summ_exp, mod[, -1],verbose = 5, permute = FALSE, num.sv = n.sv)
+iasva.sv <- iasva.res$sv
+plot(iasva.sv[, 1], iasva.sv[, 2], xlab = "SV1", ylab = "SV2")
+#还是选outlier#怎么两次画出来的反了？
+ag <- as.factor(iasva.sv[, 1] < 0.15) 
+levels(ag) <- c("ag1", "ag2")
+table(ag)
+pairs(iasva.sv[,1:5], main = "IA-SVA", pch = 21, col = color.vec[ag], bg = color.vec[ag], oma = c(4,4,6,12))
+legend("right", levels(ag), fill = color.vec, bty = "n")
+plot(iasva.sv[, 1:2], main = "IA-SVA", pch = 21, xlab = "SV1", ylab = "SV2", col = color.vec[ag], bg = color.vec[ag])
+cor(geo_lib_size, iasva.sv[, 1])
+# [1] -0.4414159
+corrplot(cor(iasva.sv))	 
+
+marker.counts <- find_markers(summ_exp, as.matrix(iasva.sv[,1]))
+# of markers (): 5232
+# total # of unique markers: 5232
+anno.col <- data.frame(ag = ag)
+rownames(anno.col) <- colnames(marker.counts)
+head(anno.col)
+pheatmap(log(marker.counts + 1), show_colnames = FALSE,
+         clustering_method = "ward.D2", cutree_cols = 2,
+         annotation_col = anno.col)
+
+		 
+#Run tSNE to detect the hidden heterogeneity
+set.seed(100)
+tsne.res <- Rtsne(t(lcounts), dims = 2)
+plot(tsne.res$Y, main = "tSNE", xlab = "tSNE Dim1", ylab = "tSNE Dim2",
+     pch = 21, col = color.vec[ag], bg = color.vec[ag],
+     oma = c(4, 4, 6, 12))
+legend("bottomright", levels(ag), fill = color.vec, bty = "n")
+#Run tSNE post IA-SVA analyses, i.e., run tSNE on marker genes associated with SV1 as detected by IA-SVA
+set.seed(100)
+tsne.res <- Rtsne(unique(t(log(marker.counts + 1))), dims = 2)
+plot(tsne.res$Y, main = "tSNE post IA-SVA", xlab = "tSNE Dim1",
+     ylab = "tSNE Dim2", pch = 21, col = color.vec[ag],
+     bg = color.vec[ag], oma = c(4, 4, 6, 12))
+legend("bottomright", levels(ag), fill = color.vec, bty = "n")
+
+#Using a faster implementation of IA-SVA (fast_iasva)
+iasva.res <- fast_iasva(summ_exp, mod[, -1], num.sv = 14)
+#Tuning parameters for IA-SVA
+study_res <- study_R2(summ_exp, iasva.sv)
