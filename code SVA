@@ -1,0 +1,65 @@
+library(sva)
+setwd("../data0523/GSE92538")
+a<-load("data0618.RData")
+expr<-as.matrix(data7)
+#the data should be a matrix with features (genes, transcripts, voxels) in the rows and samples in the columns
+pheno<-sample4[,-2]
+
+#full model matrix: including both adjustment variables and interest vatiable
+mod=model.matrix(~as.factor(agonal.factor),data=pheno)#interested variable: agonal factor
+#null model contains only the adjustment vatiables
+mod0<-model.matrix(~1,data=pheno)
+
+n.sv<-num.sv(expr,mod,method="leek")
+n.sv #1
+
+svobj<-sva(expr,mod,mod0,n.sv=n.sv)
+# Number of significant surrogate variables is:  1 
+# Iteration (out of 5 ):1  2  3  4  5
+names(svobj)
+# [1] "sv"        "pprob.gam" "pprob.b"   "n.sv"
+dim(svobj$sv)
+# [1] 335   1
+head(svobj$sv)
+            # [,1]
+# [1,]  0.04337238
+# [2,] -0.08233118
+# [3,] -0.07302697
+# [4,]  0.04437541
+# [5,]  0.02142076
+# [6,] -0.04102022
+length(svobj$pprob.gam)
+# [1] 10820
+length(svobj$pprob.b)
+# [1] 10820
+length(svobj$n.sv)
+# [1] 1
+
+pValues<-f.pvalue(expr,mod,mod0)
+qValues<-p.adjust(pValues,method="BH")
+
+modSv<-cbind(mod,svobj$sv)
+mod0Sv<-cbind(mod0,svobj$sv)
+pValuesSv<-f.pvalue(expr,modSv,mod0Sv)
+qValuesSv<-p.adjust(pValuesSv,method="BH")
+
+#adjust surrogate variables using limma 
+fit<-lmFit(expr,modSv)
+#contrast.matrix不知道怎么构建
+contrast.matrix <- cbind("C1"=c(-1,1,0,rep(0,svobj$n.sv)),"C2"=c(0,-1,1,rep(0,svobj$n.sv)),"C3"=c(-1,0,1,rep(0,svobj$n.sv)))
+fitContrasts<-contrasts.fit(fit,contrast.matrix)
+eb<-eBayes(fitContrasts)
+topTableF(eb,adjust="BH")
+
+#applying the combat to adjust known batch
+batch<-pheno$qc_batch
+modcombat<-model.matrix(~1,data=pheno)
+combat_expr<-ComBat(dat=expr,batch=batch,mod=modcombat,par.prior=TRUE,prior.plots=FALSE)
+pValuesComBat=f.pvalue(combat_expr,mod,mod0)
+qValuesComBat=p.adjust(pValuesComBat,method="BH")
+
+#removing known batch effects with a linear model
+modBatch=model.matrix(~as.factor(pheno$agonal.factor)+as.factor(pheno$qc_batch),data=pheno)
+mod0Batch=model.matrix(~as.factor(pheno$qc_batch),data=pheno)
+pValuesBatch=f.pvalue(expr,modBatch,mod0Batch)
+qValuesBatch=p.adjust(pValuesBatch,method="BH")
