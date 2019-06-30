@@ -1,0 +1,85 @@
+library(RUVSeq)
+setwd("../data0523/GSE92538")
+a<-load("data0618.RData")
+expr<-as.matrix(data7)
+#row=gene,col=sampleID
+pheno<-sample4[,-2]
+
+###filter gene
+# filter <- apply(expr, 1, function(x) length(x[x>5])>=2)
+#要求数据至少在X个样本中大于Y的reads
+# filtered <- expr[filter,]
+# genes <- rownames(filtered)[grep("^ENS", rownames(filtered))]
+# 标记基因
+# spikes <- rownames(filtered)[grep("^ERCC", rownames(filtered))]
+#标记基因
+
+#过滤完，用EDASeq包的工具构建SeqExpressionSet来画图和标准化
+#矩阵也要求整数
+x<-2^expr
+data1<-as.integer(x)
+dim(data1)<-dim(x)
+dimnames(data1)<-dimnames(x)
+b<-as.factor(pheno$agonal.factor)
+set <- newSeqExpressionSet(as.matrix(data1),phenoData = data.frame(pheno, row.names=rownames(pheno)))
+set
+# SeqExpressionSet (storageMode: lockedEnvironment)
+# assayData: 10820 features, 335 samples 
+  # element names: counts, normalizedCounts, offset 
+# protocolData: none
+# phenoData
+  # sampleNames: GSM2431715 GSM2431716 ... GSM2432092 (335 total)
+  # varLabels: diagnosis agonal.factor ... qc_batch (9 total)
+  # varMetadata: labelDescription
+# featureData: none
+# experimentData: use 'experimentData(object)'
+# Annotation: 
+
+#normalize and plot
+library(RColorBrewer)
+colors<-brewer.pal(4,"Set2")
+plotRLE(set,outline=FALSE,ylim=c(-4,4),col=colors[b])
+plotPCA(set,col=colors[b],cex=1.2)
+set2 <- betweenLaneNormalization(set, which="upper")
+plotRLE(set2,outline=FALSE,ylim=c(-4,4),col=colors[b])
+plotPCA(set2,col=colors[b],cex=1.2)
+
+#RUVg: estimating the factors of unwanted variation using control genes[spike-in]
+set1<-RUVg(set,spikes,k=1)
+pData(set1)
+plotRLE(set1,outline=FALSE,ylim=c(-4,4),col=colors[b])
+plotPCA(set1,col=colors[b],cex=1.2)
+
+#empirical control genes
+design<-model.matrix(~b,data=pData(set))
+y <- DGEList(counts=counts(set), group=b)
+y <- calcNormFactors(y, method="upperquartile")
+y <- estimateGLMCommonDisp(y, design)
+y <- estimateGLMTagwiseDisp(y, design)
+fit <- glmFit(y, design)
+lrt <- glmLRT(fit, coef=2)
+top <- topTags(lrt, n=nrow(set))$table
+empirical <- rownames(set)[which(!(rownames(set) %in% rownames(top)[1:5000]))]
+#将这5000个empirical当做spike-in
+set3<-RUVg(set,empirical,k=1)
+pData(set3)
+plotRLE(set3,outline=FALSE,ylim=c(-4,4),col=colors[b])
+plotPCA(set3,col=colors[b],cex=1.2)
+
+#replicate samples
+differences<-makeGroups(b)
+dim(differences)
+# [1]   4 264
+set4<-RUVs(set,empirical,k=1,differences)
+pData(set4)
+#residuals
+design <- model.matrix(~b, data=pData(set))
+y <- DGEList(counts=counts(set), group=b)
+y <- calcNormFactors(y, method="upperquartile")
+y <- estimateGLMCommonDisp(y, design)
+y <- estimateGLMTagwiseDisp(y, design)
+fit <- glmFit(y, design)
+res <- residuals(fit, type="deviance")
+
+set5 <- RUVr(set, empirical, k=1, res)
+pData(set5)
