@@ -1,0 +1,54 @@
+#PCA&SVD in R
+#0711
+#jcdai
+
+setwd("../data0523/GSE92538")
+a<-load("data0618.RData")
+expr<-as.matrix(t(data7))
+pheno<-sample4[,-2]
+
+expr[1:3,1:3]
+      # ENSG00000156006 ENSG00000196839 ENSG00000170558
+# GSM2431715        6.144026        5.662301        7.623894
+# GSM2431716        5.802506        5.902407        7.615728
+# GSM2431717        5.611145        5.747348        7.648767
+
+#PCA
+pc<-prcomp(expr)
+names(pc)
+# [1] "sdev"     "rotation" "center"   "scale"    "x" 
+plot(pc$x[,1],pc$x[,2],col=pheno$agonal.factor,main="PCA",xlab="PC1",ylab="PC2")
+
+#SVD
+cx<-sweep(expr,2,colMeans(expr),"-") 
+sv<-svd(cx)
+names(sv)
+# [1] "d" "u" "v"
+plot(sv$u[,1],sv$u[,2],col=pheno$agonal.factor,main="SVD",xlab="U1",ylab="U2")
+
+#SVD中U的列对应PCA中的主成分x
+#此外，SVD的矩阵V等于PCA中的rotation matrix
+
+#SVD和PCA结果的转换
+head(sv$d^2)
+# [1] 175605.27  55469.24  46409.08  32675.33  19279.49  15499.57
+head(pc$sdev^2)
+# [1] 525.76428 166.07556 138.94935  97.83033  57.72302  46.40589
+head(sv$d^2/(nrow(expr)-1))
+[1] 525.76428 166.07556 138.94935  97.83033  57.72302  46.40589
+plot(sv$d^2/sum(sv$d^2),xlim=c(0,15),type="b",pch=16,xlab="principal components",ylab="variance explained")
+plot(sv$d^2/sum(sv$d^2),type="b",pch=16,xlab="principal components",ylab="variance explained")
+
+#PCA on unknown factors
+library(corrplot)
+pv2<-prcomp(t(expr))
+corrplot(cor(pv2$rotation[,1:15],pheno))
+
+#SVD on known factors
+sv2<-svd(t(expr))
+plot(sv2$u[,1],sv2$u[,2],col=pheno$agonal.factor,main="samples vs genes (typical PCA)",xlab="U1",ylab="U2")
+corrplot(cor(sv2$v[,1:10],pheno))
+
+sv1<-svd(expr)
+plot(sv1$v[,1],sv1$v[,2],col=pheno$agonal.factor,main="gene vs samples (SVA)",xlab="V1",ylab="V2")
+
