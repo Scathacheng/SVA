@@ -1,0 +1,37 @@
+
+## Data input: 
+## [expr]: expression matrix, N rows and G columns, where N is the number of samples, and G is the number of genes. No column or row names.
+#数据应该先quantile normalization
+library(peer)
+factorList=list()
+residList=list()
+
+for(nFactor in 1:5*10){
+    model = PEER()  # create the model object
+    PEER_setPhenoMean(model,expr)  # set the observed data
+    PEER_setNk(model,nFactor) # gradient number of factors
+    PEER_getNk(model)
+    PEER_setAdd_mean(model, TRUE)  # include an additional factor (covariate) to account for the mean expression
+    ## PEER_setCovariates(model, as.matrix(meta3))  # adding covariates has no effect on the model?
+    ## PEER_setNMax_iterations(model, 10000)  # If the model is not converged after the default 1,000 iterations, and the variance of the residuals keeps decreasing, choose a higher value of iterations, e.g., 10,000.
+    PEER_update(model)  # perform the inference
+    factors = PEER_getX(model)  # inferred confounders
+    weights = PEER_getW(model)  # their weights
+    precision = PEER_getAlpha(model)     # precision (inverse variance) of the weights
+    residuals = PEER_getResiduals(model) # the residual dataset
+    #plot(precision)
+    #PEER_plotModel(model)
+    Variance<-c(); for(i in 2:(nFactor+1)){Variance<-c(Variance,var(factors[,i]))}; Variance<-sort(Variance, decreasing=TRUE); Variance<-100*Variance/sum(Variance)
+    pdf(paste("variance-factor.factor",nFactor,".pdf",sep=""),width=5,height=5)
+    plot(Variance,type="o",pch=19,col="red",xlab="Factors",main=paste("#factors: ",nFactor,sep=""))
+    dev.off()
+    factors1<-t(factors)[-1,]
+    colnames(factors1)<-rownames(expr)
+    rownames(factors1)<-paste("Factor",1:nrow(factors1),sep="")
+    factorList[[nFactor]]<-factors1
+    write.table(factors1, file=paste("expr.peerCovariates.factor",nFactor,".xls",sep=""), sep="\t", row.names=T, quote=F,col.names=NA)
+    residList[[nFactor]]<-t(residuals)
+    colnames(residList[[nFactor]])<-rownames(expr)
+    rownames(residList[[nFactor]])<-colnames(expr)
+    write.table(residList[[nFactor]], file=paste("expr.peerResid.factor",nFactor,".xls",sep=""), sep="\t", row.names=T, quote=F,col.names=NA)
+}
